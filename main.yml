@@ -1,0 +1,232 @@
+from megapi import *
+from threading import *
+
+#Hand's constants
+#Amount of time it takes to fully open the hand at speed 1
+#It is used to calculate how long the bot waits for opening/closing.
+#This number was measured empirically. The motor speed and power impacts the results.
+handOpenSleepTime=238.00;
+handSpeed=120;
+MAX_HAND_SPEED=150;
+MIN_HAND_SPEED=70;
+
+#Arm's constants
+ARM_MAX_DISTANCE=1260;
+armSpeed=100;
+
+# Wheel Motors Constants
+wheelsSpeed=100;
+
+#PORTS
+HAND_PORT=4;
+ARM_PORT=1;
+RIGHT_MOTOR_PORT=2;
+LEFT_MOTOR_PORT=3;
+armLock=Lock();#Thi slock is used to synchronize arm actions
+print("yoooo");
+
+def onRead(level):
+	print("Encoder motor position Value: %2d" %(level));
+
+def setArmSpeed(speed):
+	armSpeed = speed;
+	
+def setHandSpeed(speed):
+	handSpeed = speed;
+	
+def openHandFast(bot):
+	openHandAtSpeed(bot, MAX_HAND_SPEED);
+	
+def closeHandFast(bot):
+	closeHandAtSpeed(bot, MAX_HAND_SPEED);
+	
+def openHandSlow(bot):
+	openHandAtSpeed(bot, MIN_HAND_SPEED);
+	
+def closeHandSlow(bot):
+	closeHandAtSpeed(bot, MIN_HAND_SPEED);
+	
+def openHand(bot):
+	openHandAtSpeed(bot, handSpeed);
+	
+def closeHand(bot):
+	closeHandAtSpeed(bot, handSpeed);
+	
+def openHandAtSpeed(bot, speed):
+	speed = max(speed,MIN_HAND_SPEED);
+	speed = min(speed,MAX_HAND_SPEED);
+	bot.motorRun(HAND_PORT,speed);
+	sleep(handOpenSleepTime/speed);
+	bot.motorRun(HAND_PORT,0);
+
+def closeHandAtSpeed(bot, speed):
+	speed = abs(speed);
+	speed = max(speed,MIN_HAND_SPEED);
+	speed = min(speed,MAX_HAND_SPEED);
+	reverse = speed * -1;#make sure the speed is negative
+	bot.motorRun(HAND_PORT,reverse);
+	sleep(handOpenSleepTime/speed);
+	bot.motorRun(HAND_PORT,0);
+	
+def moveArmUp(bot):
+	armLock.acquire();
+	print("Moving arm up to the top.");
+	bot.encoderMotorMoveTo(ARM_PORT,armSpeed,(ARM_MAX_DISTANCE)*-1,onArmMoveFinish);	
+	waitForArmAction();
+
+def waitForArmAction():
+	count = 0;
+	print("Waiting for arm action.");
+	#wait up to 10 seconds, then ignore the action
+	while(armLock.locked() and count < 100):
+		sleep(0.1);
+		count+=1;
+	if(armLock.locked()):
+		armLock.release();#Release the lock regardless what happened to avoid deadlocks.
+		print("Arm did not execute action successfully. The wait for action is dismissed.");
+	
+def moveArmDown(bot):
+	armLock.acquire();
+	print("moving arm down to the bottom and resetting its location to 0");
+	bot.encoderMotorSetCurPosZero(ARM_PORT);
+	bot.encoderMotorMoveTo(ARM_PORT,armSpeed,ARM_MAX_DISTANCE,onArmMoveFinish);
+	waitForArmAction();
+	bot.encoderMotorSetCurPosZero(ARM_PORT);
+	print("Done moving arm down");
+
+#The height here is a percentage 0-100%. 0 is the bottom position and 100 is top (i.e. when the arm is fully ipened up).	
+def moveArmToHeight(bot,height):
+	armLock.acquire();
+	height = min(100,height);
+	height = max(0,height);
+	height = abs(height);
+	print("Moving arm to height percentage %f ", height); 
+	finalPosition = (height/100.00)*ARM_MAX_DISTANCE*-1;
+	print("Final position will be %f ", finalPosition); 
+	bot.encoderMotorMoveTo(ARM_PORT,armSpeed,finalPosition,onArmMoveFinish);
+	waitForArmAction();
+	print("Done moving arm to height percentage %f", height);
+
+def resetArm(bot):
+	moveArmDown(bot);
+	
+def onArmMoveFinish(dummy):
+	print("Arm completed the move");
+	bot.encoderMotorPosition(ARM_PORT,onRead);
+	if(armLock.locked()):
+		armLock.release();
+		
+## Wheels functions
+def setWheelsSpeed(speed):
+	wheelsSpeed = speed;
+		
+def rightWheelRun(bot):
+	bot.encoderMotorRun(RIGHT_MOTOR_PORT,wheelsSpeed*-1);
+	
+def leftWheelRun(bot):
+	bot.encoderMotorRun(LEFT_MOTOR_PORT,wheelsSpeed);
+	
+def rightWheelStop(bot):
+	bot.encoderMotorRun(RIGHT_MOTOR_PORT,0);
+	bot.encoderMotorSetCurPosZero(RIGHT_MOTOR_PORT);
+	
+def leftWheelStop(bot):
+	bot.encoderMotorRun(LEFT_MOTOR_PORT,0);
+	bot.encoderMotorSetCurPosZero(LEFT_MOTOR_PORT);
+	
+def wheelsRun(bot):
+	rightWheelRun(bot);
+	leftWheelRun(bot);
+
+def wheelsStop(bot):
+	rightWheelStop(bot);
+	leftWheelStop(bot);
+
+#causes wheel jaming	
+#def leftWheelMove(bot,distance):
+#	bot.encoderMotorMoveTo(LEFT_MOTOR_PORT,wheelsSpeed,distance,onRead);
+
+#causes whee; jaming	
+#def rightWheelMove(bot,distance):
+#	bot.encoderMotorMoveTo(RIGHT_MOTOR_PORT,wheelsSpeed,distance*-1,onRead);
+	
+#Synchronous left turning
+def turnLeft(bot):
+	bot.encoderMotorRun(RIGHT_MOTOR_PORT,0);
+	bot.encoderMotorSetCurPosZero(RIGHT_MOTOR_PORT);
+	bot.encoderMotorRun(RIGHT_MOTOR_PORT,-wheelsSpeed);
+	sleep(0.5);
+	bot.encoderMotorRun(RIGHT_MOTOR_PORT,0);
+
+#Synchronous right turning
+def turnRight(bot):
+	bot.encoderMotorRun(LEFT_MOTOR_PORT,0);
+	bot.encoderMotorSetCurPosZero(LEFT_MOTOR_PORT);
+	bot.encoderMotorRun(LEFT_MOTOR_PORT,wheelsSpeed);
+	sleep(0.5);
+	bot.encoderMotorRun(LEFT_MOTOR_PORT,0);
+	
+def moveForward(bot):
+	wheelsRun(bot);
+	sleep(0.5);
+	wheelsStop(bot);
+	
+if __name__ == '__main__':
+	bot = MegaPi();
+	bot.start('/dev/ttyAMA0');
+	print('yoppp');
+	#bot.encoderMotorRun(RIGHT_MOTOR_PORT,0);
+	#bot.encoderMotorRun(LEFT_MOTOR_PORT,0);
+	#bot.encoderMotorSetCurPosZero(LEFT_MOTOR_PORT);
+	#bot.encoderMotorSetCurPosZero(RIGHT_MOTOR_PORT);
+	
+	bot.encoderMotorRun(LEFT_MOTOR_PORT,0);
+	bot.encoderMotorRun(RIGHT_MOTOR_PORT,0);
+	
+	#bot.encoderMotorMoveTo(LEFT_MOTOR_PORT,170,1000,onRead);
+	
+	#bot.encoderMotorMoveTo(RIGHT_MOTOR_PORT,170,-1000,onRead);
+	#bot.encoderMotorRun(LEFT_MOTOR_PORT,60);
+	#bot.encoderMotorRun(RIGHT_MOTOR_PORT,30);
+	#sleep(1);
+	#resetArm(bot);
+	#moveArmUp(bot);
+	#closeHand(bot);
+	#moveArmUp(bot);
+	#openHand(bot);
+	#wheelsRun(bot);
+	#bot.encoderMotorMoveTo(RIGHT_MOTOR_PORT,100,300,onRead);
+	turnLeft(bot);
+	turnRight(bot);
+	moveForward(bot);
+	wheelsStop(bot);
+	
+	print('hoppp');
+	#while 1:
+		
+		#bot.motorRunPosition(4,onRead);
+		#bot.servoRun(8,1,90);
+		#bot.stepperMotorRun(4,80);
+		#bot.stepperMotorRun(4,-20);
+		
+		#bot.encoderMotorRun(2,200);
+		#bot.encoderMotorRun(3,200);
+		# bot.encoderMotorRun(7,200);
+		# print('yippp');
+		# bot.servoRun(4,1,100);
+		# bot.servoRun(7,2,100);
+		# print('yeppp');
+		# bot.servoRun(8,1,100);
+		# print('h');
+		# bot.servoRun(8,2,100);
+		# print('i');
+		# bot.servoRun(4,2,100);
+		# print('yuppp');
+
+		#bot.encoderMotorRun(4,0);
+		#bot.encoderMotorRun(2,0);
+		#bot.encoderMotorRun(3,0);
+		#bot.encoderMotorRun(4,0);
+		#sleep(2);
+		
+		#print('yo');
